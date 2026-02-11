@@ -1,0 +1,73 @@
+########################
+# Python / FastAPI
+########################
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+########################
+# Environments
+########################
+.env
+.env.*
+env/
+venv/
+.venv/
+ENV/
+
+########################
+# Python tooling caches
+########################
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+########################
+# Python / local dev files
+########################
+.python-version
+.ipynb_checkpoints/
+*.sqlite3
+*.db
+*.pid
+
+########################
+# IDE / Editor
+########################
+.vscode/
+.idea/
+*.code-workspace
+.history/
+.vs/
+
+########################
+# OS / Misc
+########################
+.DS_Store
+Thumbs.db
+*.log
+
+########################
+# Frontend (if you add one)
+########################
+node_modules/
+.next/
+.nuxt/
+.svelte-kit/
+.turbo/
+.parcel-cache/
+coverage/
+
+########################
+# Cursor / local AI metadata
+########################
+.cursor/
