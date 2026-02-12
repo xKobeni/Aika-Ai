@@ -9,6 +9,7 @@ from app.tools.implementations.web_search import web_search
 from app.tools.implementations.file_ops import file_ops
 from app.core.config import settings
 from app.memory.init_db import init_db
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="AIKA AI Backend", version="0.1.0")
 
@@ -32,6 +33,14 @@ TOOLS["file_ops"] = ToolSpec(
     name="file_ops",
     description="File operations. Safe sandbox: op=read|write|list|mkdir with path under app data. User folders (Documents, Desktop, Downloads only): op=search_user (args: query optional filename/glob, recursive optional, max_results optional) to search; op=read_user with path=string (path relative to folder or full path) to read. Use search_user then read_user when user asks to find or read their files.",
     handler=file_ops,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(health_router)
