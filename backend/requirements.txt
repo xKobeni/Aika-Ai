@@ -5,3 +5,6 @@ pydantic-settings
 httpx
 python-multipart
 ddgs
+faster-whisper
+soundfile
+pyttsx3

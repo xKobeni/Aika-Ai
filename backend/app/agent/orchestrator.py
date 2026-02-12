@@ -2,12 +2,11 @@ from __future__ import annotations
 import json
 import re
 import random
-from typing import Any, Dict, List
+from typing import Any, AsyncIterator, Dict, List
 
-from app.agent.prompts import SYSTEM_PROMPT
 from app.agent.tool_parse import try_parse_tool_call
 from app.core.config import settings
-from app.core.prompt_loader import get_greeting_replies
+from app.core.prompt_loader import get_character, get_chat_system_prompt, get_greeting_replies
 from app.llm.ollama_client import OllamaClient
 from app.tools.router import execute_tool
 from app.tools.registry import TOOLS
@@ -25,6 +24,11 @@ def _is_greeting(message: str) -> bool:
     normalized = re.sub(r"[.!?]+$", "", normalized).strip()
     if normalized in _GREETING_NORMALIZED:
         return True
+    # "Hello [CharacterName]" – add character name from config
+    name = (get_character().get("name") or "aika").strip().lower()
+    if name and f"hello {name}" not in _GREETING_NORMALIZED:
+        if normalized == f"hello {name}" or normalized == f"hi {name}" or normalized == f"hey {name}":
+            return True
     # "Hello Aika" / "Hi there" etc. – short and starts with a greeting word
     if len(normalized) <= 25 and normalized:
         first = normalized.split()[0] if normalized.split() else ""
@@ -114,7 +118,7 @@ class Agent:
         # Simple in-memory conversation history (list of {"role", "content"} dicts).
         # This is per-process; if you add user IDs later, you can move this to a per-user store.
         self._history: List[Dict[str, str]] = []
-        self._max_history_turns: int = 10  # user+assistant pairs to keep
+        self._max_history_turns: int = getattr(settings, "CHAT_MAX_HISTORY_TURNS", 6)
 
     def _append_turn(self, user_message: str, assistant_reply: str) -> None:
         """Store a user/assistant exchange in short-term memory."""
@@ -148,7 +152,7 @@ class Agent:
         ]
 
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": get_chat_system_prompt()},
             {"role": "system", "content": f"Allowed tools: {json.dumps(tool_list)}"},
         ]
 
@@ -160,11 +164,13 @@ class Agent:
         messages.append({"role": "user", "content": user_message})
 
         num_predict = getattr(settings, "OLLAMA_NUM_PREDICT", -1)
+        num_ctx = getattr(settings, "OLLAMA_NUM_CTX", 0)
         try:
             assistant = await self.ollama.chat(
                 model=self.model,
                 messages=messages,
                 num_predict=num_predict if num_predict > 0 else -1,
+                num_ctx=num_ctx if num_ctx > 0 else 0,
             )
         except Exception as e:
             # Fallback: on model failure, try web search and return that if successful
@@ -228,6 +234,7 @@ class Agent:
                 model=self.model,
                 messages=followup_messages,
                 num_predict=num_predict if num_predict > 0 else -1,
+                num_ctx=num_ctx if num_ctx > 0 else 0,
             )
             final_reply = _post_process_reply(model_reply, user_message)
         except Exception:
@@ -237,6 +244,70 @@ class Agent:
         self._append_turn(user_message, final_reply)
 
         return {
+            "reply": final_reply,
+            "tool_used": {"tool": tool_name, "args": args},
+            "tool_result": tool_result,
+        }
+
+    async def handle_chat_stream(self, user_message: str) -> AsyncIterator[Dict[str, Any]]:
+        """
+        Stream the AI reply chunk by chunk. Yields {"type": "chunk", "text": "..."} then
+        {"type": "done", "reply": "...", "tool_used": ..., "tool_result": ...}.
+        Greetings yield only "done". On error yields {"type": "error", "message": "..."}.
+        """
+        if _is_greeting(user_message):
+            replies = get_greeting_replies()
+            if not replies:
+                replies = ["Hello. I'm here when you need me."]
+            idx = hash(user_message.strip().lower()) % len(replies)
+            reply = replies[idx]
+            self._append_turn(user_message, reply)
+            yield {"type": "done", "reply": reply, "tool_used": None, "tool_result": None}
+            return
+
+        tool_list = [
+            {"name": spec.name, "description": spec.description}
+            for spec in TOOLS.values()
+        ]
+        messages = [
+            {"role": "system", "content": get_chat_system_prompt()},
+            {"role": "system", "content": f"Allowed tools: {json.dumps(tool_list)}"},
+        ]
+        if self._history:
+            messages.extend(self._history[-(self._max_history_turns * 2):])
+        messages.append({"role": "user", "content": user_message})
+
+        num_predict = getattr(settings, "OLLAMA_NUM_PREDICT", -1)
+        num_ctx = getattr(settings, "OLLAMA_NUM_CTX", 0)
+        accumulated = []
+        try:
+            async for chunk in self.ollama.chat_stream(
+                model=self.model,
+                messages=messages,
+                num_predict=num_predict if num_predict > 0 else -1,
+                num_ctx=num_ctx if num_ctx > 0 else 0,
+            ):
+                accumulated.append(chunk)
+                yield {"type": "chunk", "text": chunk}
+        except Exception as e:
+            yield {"type": "error", "message": str(e)}
+            return
+
+        assistant = "".join(accumulated)
+        tool_call = try_parse_tool_call(assistant)
+        if not tool_call:
+            final_reply = _post_process_reply(assistant, user_message)
+            self._append_turn(user_message, final_reply)
+            yield {"type": "done", "reply": final_reply, "tool_used": None, "tool_result": None}
+            return
+
+        tool_name, args = tool_call
+        tool_result = execute_tool(tool_name, args)
+        formatted = _format_tool_reply(tool_name, tool_result)
+        final_reply = _post_process_reply(formatted, user_message)
+        self._append_turn(user_message, final_reply)
+        yield {
+            "type": "done",
             "reply": final_reply,
             "tool_used": {"tool": tool_name, "args": args},
             "tool_result": tool_result,

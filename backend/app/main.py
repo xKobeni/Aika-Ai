@@ -33,7 +33,6 @@ app.include_router(health_router)
 app.include_router(chat_router)
 app.include_router(vision_router)
 
-
 if __name__ == "__main__":
     # Run with host/port from environment-backed settings
     import uvicorn
