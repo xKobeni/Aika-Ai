@@ -8,6 +8,7 @@ from app.agent.tool_parse import try_parse_tool_call
 from app.core.config import settings
 from app.core.prompt_loader import get_character, get_chat_system_prompt, get_greeting_replies
 from app.llm.ollama_client import OllamaClient
+from app.memory.repo import get_all_preferences, get_all_learned_facts
 from app.tools.router import execute_tool
 from app.tools.registry import TOOLS
 
@@ -129,39 +130,48 @@ class Agent:
         if len(self._history) > max_messages:
             self._history = self._history[-max_messages:]
 
-    async def handle_chat(self, user_message: str) -> Dict[str, Any]:
-        # Instant reply for greetings (no LLM call – avoids ~10s delay), in character (from prompts.json)
+    def _effective_history(self, history: list[dict] | None) -> List[Dict[str, str]]:
+        """History from DB or in-memory, trimmed to max turns. When history is provided (session-based), we do not update in-memory _history."""
+        source = history if history is not None else self._history
+        if not source:
+            return []
+        max_messages = self._max_history_turns * 2
+        return source[-max_messages:] if len(source) > max_messages else source
+
+    async def handle_chat(self, user_message: str, history: list[dict] | None = None) -> Dict[str, Any]:
+        use_db_history = history is not None
+
         if _is_greeting(user_message):
             replies = get_greeting_replies()
             if not replies:
                 replies = ["Hello. I'm here when you need me."]
             idx = hash(user_message.strip().lower()) % len(replies)
             reply = replies[idx]
-            self._append_turn(user_message, reply)
+            if not use_db_history:
+                self._append_turn(user_message, reply)
             return {
                 "reply": reply,
                 "tool_used": None,
                 "tool_result": None,
             }
 
-        # Provide tool list in context (so model knows what exists),
-        # deriving it from the registry to avoid duplication.
         tool_list = [
             {"name": spec.name, "description": spec.description}
             for spec in TOOLS.values()
         ]
-
+        effective = self._effective_history(history)
+        prefs = get_all_preferences()
+        learned_facts = get_all_learned_facts()
+        prefs_text = "\n".join([f"- {k}: {v}" for k, v in prefs.items()]) if prefs else "None"
+        facts_text = "\n".join([f"- {k}: {v}" for k, v in learned_facts.items()]) if learned_facts else "None"
+        memory_text = f"User preferences:\n{prefs_text}\n\nLearned facts:\n{facts_text}"
         messages = [
             {"role": "system", "content": get_chat_system_prompt()},
+            {"role": "system", "content": f"Long-term memory:\n{memory_text}"},
             {"role": "system", "content": f"Allowed tools: {json.dumps(tool_list)}"},
+            *effective,
+            {"role": "user", "content": user_message},
         ]
-
-        # Include recent conversation history so replies can stay in context.
-        if self._history:
-            messages.extend(self._history[-(self._max_history_turns * 2):])
-
-        # Current user message goes last.
-        messages.append({"role": "user", "content": user_message})
 
         num_predict = getattr(settings, "OLLAMA_NUM_PREDICT", -1)
         num_ctx = getattr(settings, "OLLAMA_NUM_CTX", 0)
@@ -186,23 +196,25 @@ class Agent:
                     if url:
                         parts.append(f"   {url}\n")
                 reply = "".join(parts).strip()
-                self._append_turn(user_message, reply)
+                if not use_db_history:
+                    self._append_turn(user_message, reply)
                 return {
                     "reply": reply,
                     "tool_used": {"tool": "web_search", "args": {"query": user_message, "max_results": 5}},
                     "tool_result": fallback_result,
                 }
-            # No web results: return original error, optionally mention fallback failed
             reply = f"Sorry, I couldn't reach the AI model. Details: {str(e)}"
             if not fallback_result.get("ok"):
                 reply += " I also tried searching the web but that didn't work."
-            self._append_turn(user_message, reply)
+            if not use_db_history:
+                self._append_turn(user_message, reply)
             return {"reply": reply, "tool_used": None, "tool_result": None}
 
         tool_call = try_parse_tool_call(assistant)
         if not tool_call:
             final_reply = _post_process_reply(assistant, user_message)
-            self._append_turn(user_message, final_reply)
+            if not use_db_history:
+                self._append_turn(user_message, final_reply)
             return {
                 "reply": final_reply,
                 "tool_used": None,
@@ -212,11 +224,11 @@ class Agent:
         tool_name, args = tool_call
         tool_result = execute_tool(tool_name, args)
 
-        # Fast path: skip second LLM call and format result in-code (configurable)
         if getattr(settings, "FAST_REPLY", True):
             formatted = _format_tool_reply(tool_name, tool_result)
             final_reply = _post_process_reply(formatted, user_message)
-            self._append_turn(user_message, final_reply)
+            if not use_db_history:
+                self._append_turn(user_message, final_reply)
             return {
                 "reply": final_reply,
                 "tool_used": {"tool": tool_name, "args": args},
@@ -241,7 +253,8 @@ class Agent:
             formatted = _format_tool_reply(tool_name, tool_result)
             final_reply = _post_process_reply(formatted, user_message)
 
-        self._append_turn(user_message, final_reply)
+        if not use_db_history:
+            self._append_turn(user_message, final_reply)
 
         return {
             "reply": final_reply,
@@ -249,19 +262,21 @@ class Agent:
             "tool_result": tool_result,
         }
 
-    async def handle_chat_stream(self, user_message: str) -> AsyncIterator[Dict[str, Any]]:
+    async def handle_chat_stream(self, user_message: str, history: list[dict] | None = None) -> AsyncIterator[Dict[str, Any]]:
         """
         Stream the AI reply chunk by chunk. Yields {"type": "chunk", "text": "..."} then
         {"type": "done", "reply": "...", "tool_used": ..., "tool_result": ...}.
         Greetings yield only "done". On error yields {"type": "error", "message": "..."}.
         """
+        use_db_history = history is not None
         if _is_greeting(user_message):
             replies = get_greeting_replies()
             if not replies:
                 replies = ["Hello. I'm here when you need me."]
             idx = hash(user_message.strip().lower()) % len(replies)
             reply = replies[idx]
-            self._append_turn(user_message, reply)
+            if not use_db_history:
+                self._append_turn(user_message, reply)
             yield {"type": "done", "reply": reply, "tool_used": None, "tool_result": None}
             return
 
@@ -269,13 +284,19 @@ class Agent:
             {"name": spec.name, "description": spec.description}
             for spec in TOOLS.values()
         ]
+        effective = self._effective_history(history)
+        prefs = get_all_preferences()
+        learned_facts = get_all_learned_facts()
+        prefs_text = "\n".join([f"- {k}: {v}" for k, v in prefs.items()]) if prefs else "None"
+        facts_text = "\n".join([f"- {k}: {v}" for k, v in learned_facts.items()]) if learned_facts else "None"
+        memory_text = f"User preferences:\n{prefs_text}\n\nLearned facts:\n{facts_text}"
         messages = [
             {"role": "system", "content": get_chat_system_prompt()},
+            {"role": "system", "content": f"Long-term memory:\n{memory_text}"},
             {"role": "system", "content": f"Allowed tools: {json.dumps(tool_list)}"},
+            *effective,
+            {"role": "user", "content": user_message},
         ]
-        if self._history:
-            messages.extend(self._history[-(self._max_history_turns * 2):])
-        messages.append({"role": "user", "content": user_message})
 
         num_predict = getattr(settings, "OLLAMA_NUM_PREDICT", -1)
         num_ctx = getattr(settings, "OLLAMA_NUM_CTX", 0)
@@ -297,7 +318,8 @@ class Agent:
         tool_call = try_parse_tool_call(assistant)
         if not tool_call:
             final_reply = _post_process_reply(assistant, user_message)
-            self._append_turn(user_message, final_reply)
+            if not use_db_history:
+                self._append_turn(user_message, final_reply)
             yield {"type": "done", "reply": final_reply, "tool_used": None, "tool_result": None}
             return
 
@@ -305,7 +327,8 @@ class Agent:
         tool_result = execute_tool(tool_name, args)
         formatted = _format_tool_reply(tool_name, tool_result)
         final_reply = _post_process_reply(formatted, user_message)
-        self._append_turn(user_message, final_reply)
+        if not use_db_history:
+            self._append_turn(user_message, final_reply)
         yield {
             "type": "done",
             "reply": final_reply,

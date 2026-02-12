@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     CHAT_MAX_HISTORY_TURNS: int = 4
     # If True, use a shorter system prompt for faster first-token (less personality detail).
     CHAT_FAST_PROMPT: bool = True
+    # If True, automatically learn facts/preferences from conversations.
+    AUTO_LEARN_ENABLED: bool = True
+    # Minimum confidence (0.0-1.0) for auto-learned facts to be saved.
+    AUTO_LEARN_CONFIDENCE_THRESHOLD: float = 0.7
 
     # Server
     SERVER_HOST: str = "0.0.0.0"

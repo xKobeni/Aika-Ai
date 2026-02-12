@@ -2,13 +2,18 @@ from fastapi import FastAPI
 from app.api.routes.health import router as health_router
 from app.api.routes.chat import router as chat_router
 from app.api.routes.vision import router as vision_router
+from app.api.routes.memory import router as memory_router
 from app.tools.registry import TOOLS, ToolSpec
 from app.tools.implementations.open_app import open_app
 from app.tools.implementations.web_search import web_search
 from app.tools.implementations.file_ops import file_ops
 from app.core.config import settings
+from app.memory.init_db import init_db
 
 app = FastAPI(title="AIKA AI Backend", version="0.1.0")
+
+# Initialize database
+init_db()
 
 # Register tools on startup
 TOOLS["open_app"] = ToolSpec(
@@ -32,6 +37,7 @@ TOOLS["file_ops"] = ToolSpec(
 app.include_router(health_router)
 app.include_router(chat_router)
 app.include_router(vision_router)
+app.include_router(memory_router)
 
 if __name__ == "__main__":
     # Run with host/port from environment-backed settings

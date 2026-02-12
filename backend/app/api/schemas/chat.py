@@ -7,6 +7,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     reply: str
+    session_id: str
     tool_used: Optional[Dict[str, Any]] = None
     tool_result: Optional[Dict[str, Any]] = None
 
