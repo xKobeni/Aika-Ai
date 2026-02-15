@@ -1,22 +1,26 @@
 from __future__ import annotations
 from typing import Any, Dict, List
 
+from app.core.config import settings
+
 def web_search(args: Dict[str, Any]) -> Dict[str, Any]:
     """
     args:
       - query: string (required)
-      - max_results: int (optional, default 5, max 10)
+      - max_results: int (optional, default from env, cap from env)
     """
     query = (args.get("query") or "").strip()
     if not query:
         return {"ok": False, "error": "Missing 'query'."}
 
-    max_results = args.get("max_results", 5)
+    default_max = settings.WEB_SEARCH_MAX_RESULTS_DEFAULT
+    cap = settings.WEB_SEARCH_MAX_RESULTS_CAP
+    max_results = args.get("max_results", default_max)
     try:
         max_results = int(max_results)
     except Exception:
-        max_results = 5
-    max_results = max(1, min(max_results, 10))
+        max_results = default_max
+    max_results = max(1, min(max_results, cap))
 
     # Prefer ddgs (successor to duckduckgo-search); fall back to duckduckgo_search
     try:

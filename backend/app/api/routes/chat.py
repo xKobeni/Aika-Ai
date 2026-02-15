@@ -1,15 +1,23 @@
+import asyncio
 import json
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from app.api.schemas.chat import ChatRequest, ChatResponse, GreetingResponse
+from app.api.schemas.chat import (
+    ChatRequest,
+    ChatResponse,
+    GreetingResponse,
+    SessionListItem,
+    SessionMessage,
+    SessionMessagesResponse,
+)
 from app.core.config import settings
 from app.llm.ollama_client import OllamaClient
 from app.agent.orchestrator import Agent
 from app.core.prompt_loader import get_greeting_message
-from app.memory.repo import add_message, get_recent_messages, log_tool
+from app.memory.repo import add_message, get_recent_messages, get_session_messages, log_tool, list_sessions
 from app.memory.learning import learn_from_conversation
 
 router = APIRouter(tags=["chat"])
@@ -24,15 +32,34 @@ async def chat_greeting():
     return GreetingResponse(message=get_greeting_message())
 
 
+@router.get("/chat/sessions", response_model=list[SessionListItem])
+async def get_sessions():
+    """List chat sessions ordered by last activity (most recent first)."""
+    return list_sessions(limit=50)
+
+
+@router.get("/chat/sessions/{session_id}/messages", response_model=SessionMessagesResponse)
+async def get_session_messages_route(session_id: str):
+    """Get messages for a session in chronological order."""
+    rows = get_session_messages(session_id, limit=100)
+    return SessionMessagesResponse(
+        session_id=session_id,
+        messages=[
+            SessionMessage(role=m["role"], content=m["content"], created_at=m.get("created_at", ""))
+            for m in rows
+        ],
+    )
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
     """Send a message to the AI agent; may trigger a tool and return a summarized reply. Session-based memory is used when session_id is provided or generated."""
-    if not (req.message or not req.message.strip()):
+    if not req.message or not req.message.strip():
         raise HTTPException(status_code=400, detail="message must be non-empty.")
     msg = req.message.strip()
     session_id = req.session_id or uuid4().hex
 
-    history = get_recent_messages(session_id, limit=12)
+    history = get_recent_messages(session_id, limit=settings.CHAT_HISTORY_FETCH_LIMIT)
     add_message(session_id, "user", msg)
 
     result = await agent.handle_chat(msg, history=history)
@@ -45,20 +72,23 @@ async def chat(req: ChatRequest):
             result["tool_used"]["args"],
             result["tool_result"],
         )
-    
-    # Auto-learn from conversation (runs async in background, doesn't block response)
-    try:
-        learned = await learn_from_conversation(
-            msg,
-            result["reply"],
-            session_id,
-            ollama,
-            settings.OLLAMA_MODEL,
-        )
-        if learned:
-            result["learned_facts"] = learned  # Optional: include in response
-    except Exception:
-        pass  # Don't break chat if learning fails
+
+    # Auto-learn in background so response returns immediately
+    async def _learn_background():
+        try:
+            learned = await learn_from_conversation(
+                msg,
+                result["reply"],
+                session_id,
+                ollama,
+                settings.OLLAMA_MODEL,
+            )
+            if learned:
+                result["learned_facts"] = learned
+        except Exception:
+            pass
+
+    asyncio.create_task(_learn_background())
 
     result["session_id"] = session_id
     return result
@@ -72,12 +102,12 @@ async def chat_stream(req: ChatRequest):
     - {"type": "done", "reply": "...", "session_id": "...", "tool_used": ..., "tool_result": ...} when finished
     - {"type": "error", "message": "..."} on error
     """
-    if not (req.message or not req.message.strip()):
+    if not req.message or not req.message.strip():
         raise HTTPException(status_code=400, detail="message must be non-empty.")
     msg = req.message.strip()
     session_id = req.session_id or uuid4().hex
 
-    history = get_recent_messages(session_id, limit=12)
+    history = get_recent_messages(session_id, limit=settings.CHAT_HISTORY_FETCH_LIMIT)
     add_message(session_id, "user", msg)
 
     async def event_stream():
@@ -92,20 +122,24 @@ async def chat_stream(req: ChatRequest):
                         event["tool_used"]["args"],
                         event["tool_result"],
                     )
-                # Auto-learn from conversation (runs async, doesn't block stream)
-                try:
-                    learned = await learn_from_conversation(
-                        msg,
-                        event["reply"],
-                        session_id,
-                        ollama,
-                        settings.OLLAMA_MODEL,
-                    )
-                    if learned:
-                        event["learned_facts"] = learned  # Optional: include in done event
-                except Exception:
-                    pass  # Don't break stream if learning fails
-            yield f"data: {json.dumps(event)}\n\n"
+                # Yield done immediately so client gets response fast
+                yield f"data: {json.dumps(event)}\n\n"
+                # Auto-learn in background (don't block the stream)
+                reply = event.get("reply") or ""
+
+                async def _learn_stream():
+                    try:
+                        learned = await learn_from_conversation(
+                            msg, reply, session_id, ollama, settings.OLLAMA_MODEL
+                        )
+                        if learned:
+                            event["learned_facts"] = learned
+                    except Exception:
+                        pass
+
+                asyncio.create_task(_learn_stream())
+            else:
+                yield f"data: {json.dumps(event)}\n\n"
 
     return StreamingResponse(
         event_stream(),

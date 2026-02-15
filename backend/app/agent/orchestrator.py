@@ -184,10 +184,11 @@ class Agent:
             )
         except Exception as e:
             # Fallback: on model failure, try web search and return that if successful
-            fallback_result = execute_tool("web_search", {"query": user_message, "max_results": 5})
+            fallback_max = getattr(settings, "WEB_SEARCH_MAX_RESULTS_DEFAULT", 5)
+            fallback_result = execute_tool("web_search", {"query": user_message, "max_results": fallback_max})
             if fallback_result.get("ok") and fallback_result.get("results"):
                 parts = ["I couldn't reach my usual model, so I searched the web for you:\n\n"]
-                for i, r in enumerate(fallback_result["results"][:5], 1):
+                for i, r in enumerate(fallback_result["results"][:fallback_max], 1):
                     title = r.get("title") or "Result"
                     snippet = (r.get("snippet") or "").strip()
                     url = r.get("url") or ""
@@ -200,7 +201,7 @@ class Agent:
                     self._append_turn(user_message, reply)
                 return {
                     "reply": reply,
-                    "tool_used": {"tool": "web_search", "args": {"query": user_message, "max_results": 5}},
+                    "tool_used": {"tool": "web_search", "args": {"query": user_message, "max_results": fallback_max}},
                     "tool_result": fallback_result,
                 }
             reply = f"Sorry, I couldn't reach the AI model. Details: {str(e)}"

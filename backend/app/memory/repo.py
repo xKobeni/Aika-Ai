@@ -41,9 +41,59 @@ def get_recent_messages(session_id: str, limit: int = 12) -> List[Dict[str, str]
             "SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?",
             (session_id, limit),
         ).fetchall()
-        # rows are newest first, reverse them:
         rows = list(reversed(rows))
         return [{"role": r["role"], "content": r["content"]} for r in rows]
+    finally:
+        conn.close()
+
+
+def get_session_messages(session_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+    """Returns messages for a session with created_at, in chronological order."""
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT role, content, created_at FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT ?",
+            (session_id, limit),
+        ).fetchall()
+        return [{"role": r["role"], "content": r["content"], "created_at": r["created_at"]} for r in rows]
+    finally:
+        conn.close()
+
+
+def list_sessions(limit: int = 50) -> List[Dict[str, Any]]:
+    """
+    Returns sessions ordered by last activity (most recent first).
+    Each session has: id, created_at, updated_at (last message time or created_at), preview (last message content truncated).
+    """
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            """
+            SELECT s.id, s.created_at,
+                   (SELECT m.content FROM messages m WHERE m.session_id = s.id ORDER BY m.id DESC LIMIT 1) AS preview,
+                   (SELECT m.created_at FROM messages m WHERE m.session_id = s.id ORDER BY m.id DESC LIMIT 1) AS last_at
+            FROM sessions s
+            ORDER BY COALESCE(
+                (SELECT m.created_at FROM messages m WHERE m.session_id = s.id ORDER BY m.id DESC LIMIT 1),
+                s.created_at
+            ) DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        out = []
+        for r in rows:
+            preview = (r["preview"] or "").strip()
+            if len(preview) > 120:
+                preview = preview[:117] + "..."
+            updated_at = r["last_at"] or r["created_at"]
+            out.append({
+                "id": r["id"],
+                "created_at": r["created_at"],
+                "updated_at": updated_at,
+                "preview": preview or "No messages yet.",
+            })
+        return out
     finally:
         conn.close()
 

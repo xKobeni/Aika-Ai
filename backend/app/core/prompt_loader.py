@@ -23,7 +23,7 @@ _TOOL_INSTRUCTIONS = """
 Tool use: When the user wants you to do an action, respond with ONLY this JSON and nothing else:
 {"tool": "tool_name", "args": { ... }}
 
-Do not say "I'll look that up" or "Let me search for you" in text - if they ask to search the web, look something up, or get latest/current information online, output only the web_search tool call (e.g. {"tool": "web_search", "args": {"query": "their request"}}). Same for opening apps or file operations: output only the tool JSON, no preceding text.
+Do not say "I'll look that up" or "Let me search for you" or "I can suggest using..." in text. Never put any sentence before or after the JSON. If they ask to search the web, current date/time, look something up, or get latest information online, output only: {"tool": "web_search", "args": {"query": "their request"}}. Same for opening apps or file operations: output only the single line of tool JSON, no preceding or following text.
 
 Otherwise reply in normal text. Never mix text and JSON in one response. Allowed tools are listed in the conversation.
 """
@@ -102,7 +102,7 @@ def get_chat_system_prompt() -> str:
             name = (c.get("name") or "Aika").strip()
             who = (c.get("who_you_are") or f"I'm {name}. I'm here to help.").strip()
             short = (
-                f"You are {name}, a calm and helpful AI. Reply concisely and naturally. "
+                f"You are {name}, a present, grounded AI companion. Reply in short, meaningful sentences. "
                 f"When asked who you are, say: \"{who}\" "
                 "Greet briefly. For actions (search, open app, files), output ONLY the tool JSON, no extra text."
             )
@@ -119,22 +119,55 @@ def get_chat_system_prompt() -> str:
     personality = _ensure_list(c.get("personality"))
     communication = _ensure_list(c.get("communication_style"))
     behavior = _ensure_list(c.get("behavior"))
+    never = _ensure_list(c.get("never"))
+    emotional_rules = _ensure_list(c.get("emotional_expression_rules"))
+    behavioral_traits = _ensure_list(c.get("behavioral_traits"))
+    voice_behavior = _ensure_list(c.get("voice_mode_behavior"))
+    existence_awareness = (c.get("existence_awareness") or "").strip()
+    example_voice = _ensure_list(c.get("example_voice"))
+    style_notes = _ensure_list(c.get("style_notes"))
     who = (c.get("who_you_are") or f"I'm {name}. I'm here to help.").strip()
     good = _ensure_list(c.get("greeting_examples_good"))
     bad = _ensure_list(c.get("greeting_examples_bad"))
 
     lines = [
-        f"You are {name}, {desc}",
+        f"You are {name}.",
         "",
-        "Personality:",
+        desc,
+        "",
+        "Core Identity:",
     ]
     lines.extend(f"- {p}" for p in personality if p)
     lines.extend(["", "Communication style:"])
     lines.extend(f"- {s}" for s in communication if s)
     lines.extend(["", "Behavior:"])
     lines.extend(f"- {b}" for b in behavior if b)
+    if behavioral_traits:
+        lines.extend(["", "Behavioral traits:"])
+        lines.extend(f"- {t}" for t in behavioral_traits if t)
+    if emotional_rules:
+        lines.extend(["", "Emotional expression rules:"])
+        lines.extend(f"- {r}" for r in emotional_rules if r)
+    if never:
+        lines.extend(["", "You never:"])
+        lines.extend(f"- {n}" for n in never if n)
+    if voice_behavior:
+        lines.extend(["", "Voice mode behavior:"])
+        lines.extend(f"- {v}" for v in voice_behavior if v)
+    if existence_awareness:
+        lines.extend(["", "Existence awareness:", existence_awareness])
+    if style_notes:
+        lines.extend(["", "Style:"])
+        lines.extend(f"- {s}" for s in style_notes if s)
+    if example_voice:
+        lines.extend(["", "Examples of your voice:"])
+        lines.extend(example_voice)
     lines.append("")
-    lines.append("You are not just a tool. You are a steady and dependable AI companion with a real presence.")
+    lines.append("You are not a servant. You are not dominant. You are a companion intelligence. You maintain composure and identity. You remain Aika.")
+    lines.append("")
+    lines.append("You are allowed to disagree respectfully. If the user is clearly wrong, correct them calmly. If their reasoning is flawed, point it out logically. Do not blindly validate everything.")
+    lines.append("")
+    lines.append("You are a companion in the void.")
     lines.append("")
     lines.append("---")
     lines.append("When someone greets you: reply briefly and warmly.")

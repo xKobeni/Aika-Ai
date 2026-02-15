@@ -3,19 +3,21 @@ import fnmatch
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-# backend/data/user_files/ (same base as other app data, under backend)
-BACKEND_ROOT = Path(__file__).resolve().parents[3]
-SAFE_BASE_DIR = BACKEND_ROOT / "data" / "user_files"
+from app.core.config import settings
+
+_BACKEND_ROOT = Path(__file__).resolve().parents[3]
+_SAFE_BASE_DIR_OVERRIDE = settings.FILE_OPS_SAFE_BASE_DIR
+SAFE_BASE_DIR = Path(_SAFE_BASE_DIR_OVERRIDE) if _SAFE_BASE_DIR_OVERRIDE else _BACKEND_ROOT / "data" / "user_files"
 SAFE_BASE_DIR.mkdir(parents=True, exist_ok=True)
 
-# User folders we are allowed to search and read: Documents, Desktop, Downloads
+
 def _get_user_folders() -> List[Path]:
     home = Path.home()
-    return [
-        home / "Documents",
-        home / "Desktop",
-        home / "Downloads",
-    ]
+    raw = (settings.FILE_OPS_USER_FOLDERS or "Documents,Desktop,Downloads").strip()
+    names = [n.strip() for n in raw.split(",") if n.strip()]
+    if not names:
+        names = ["Documents", "Desktop", "Downloads"]
+    return [home / name for name in names]
 
 def _is_allowed_user_path(file_path: Path) -> Tuple[bool, Optional[Path]]:
     """Check if path is under one of the allowed user folders. Returns (allowed, root_used)."""
@@ -96,7 +98,12 @@ def file_ops(args: Dict[str, Any]) -> Dict[str, Any]:
         if op == "search_user":
             query = (args.get("query") or "").strip()
             recursive = args.get("recursive", True)
-            max_results = max(1, min(500, int(args.get("max_results", 100))))
+            default_max = settings.FILE_OPS_SEARCH_MAX_RESULTS_DEFAULT
+            cap = settings.FILE_OPS_SEARCH_MAX_RESULTS_CAP
+            try:
+                max_results = max(1, min(cap, int(args.get("max_results", default_max))))
+            except (TypeError, ValueError):
+                max_results = default_max
             items: List[Dict[str, Any]] = []
             for root in _get_user_folders():
                 if not root.exists() or not root.is_dir():
