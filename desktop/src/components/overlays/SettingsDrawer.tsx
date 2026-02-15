@@ -1,12 +1,29 @@
 import { useAikaUI } from '../../contexts/AikaUIContext';
-import type { ThemeKey } from '../../contexts/AikaUIContext';
+import type { ThemeKey, Expression } from '../../contexts/AikaUIContext';
 
-const THEMES: { value: ThemeKey; label: string }[] = [
-  { value: 'void', label: 'VOID WHITE' },
-  { value: 'cyan', label: 'CYAN CORE' },
-  { value: 'red', label: 'RED SENTINEL' },
-  { value: 'violet', label: 'VIOLET QUANTUM' },
-  { value: 'emerald', label: 'EMERALD REACTOR' },
+const EXPRESSIONS: Expression[] = [
+  'neutral',
+  'curious',
+  'happy',
+  'sleepy',
+  'focused',
+  'sad',
+  'bored',
+  'excited',
+  'surprised',
+  'suspicious',
+  'angry',
+  'scared',
+  'crying',
+  'dead',
+];
+
+const THEMES: { value: ThemeKey; label: string; swatch: string }[] = [
+  { value: 'void', label: 'Void White', swatch: 'linear-gradient(135deg, #1a1e2e 0%, #0d1117 50%, #2a2f42 100%)' },
+  { value: 'cyan', label: 'Cyan Core', swatch: 'linear-gradient(135deg, #0a1929 0%, #0d2137 50%, #0d3d56 100%)' },
+  { value: 'red', label: 'Red Sentinel', swatch: 'linear-gradient(135deg, #1a0a0d 0%, #2d0f14 50%, #3d1520 100%)' },
+  { value: 'violet', label: 'Violet Quantum', swatch: 'linear-gradient(135deg, #1a0d2e 0%, #251840 50%, #2d1f4d 100%)' },
+  { value: 'emerald', label: 'Emerald Reactor', swatch: 'linear-gradient(135deg, #0a1a14 0%, #0d2d20 50%, #0f3d2a 100%)' },
 ];
 
 export function SettingsDrawer() {
@@ -76,22 +93,22 @@ export function SettingsDrawer() {
                   onClick={() => ui.updateSettings({ sound: !s.sound })}
                 />
               </div>
-              <div className="toggle" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-                <div className="sectionTitle2" style={{ border: 'none', padding: 0 }}>
-                  Theme
-                </div>
-                <select
-                  className="select"
-                  id="themeSelect"
-                  value={s.theme}
-                  onChange={(e) => ui.updateSettings({ theme: e.target.value as ThemeKey })}
-                >
+              <div className="settingsThemeBlock">
+                <div className="sectionTitle2 settingsThemeLabel">Theme</div>
+                <div className="themeCards" role="group" aria-label="Theme">
                   {THEMES.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
+                    <button
+                      key={t.value}
+                      type="button"
+                      className={`themeCard ${s.theme === t.value ? 'active' : ''}`}
+                      onClick={() => ui.updateSettings({ theme: t.value })}
+                      title={t.label}
+                    >
+                      <span className="themeCardSwatch" style={{ background: t.swatch }} />
+                      <span className="themeCardLabel">{t.label}</span>
+                    </button>
                   ))}
-                </select>
+                </div>
               </div>
             </div>
 
@@ -122,42 +139,54 @@ export function SettingsDrawer() {
                   <div className="label">CRT Intensity</div>
                   <div className="val">{s.crt}%</div>
                 </div>
-                <input
-                  type="range"
-                  id="sliderCRT"
-                  min={0}
-                  max={60}
-                  value={s.crt}
-                  onChange={(e) => ui.updateSettings({ crt: Number(e.target.value) })}
-                />
+                <div className="settingsSliderWrap">
+                  <div className="settingsSliderFill" style={{ width: `${(s.crt / 60) * 100}%` }} />
+                  <input
+                    type="range"
+                    id="sliderCRT"
+                    min={0}
+                    max={60}
+                    value={s.crt}
+                    onChange={(e) => ui.updateSettings({ crt: Number(e.target.value) })}
+                    className="settingsSlider"
+                  />
+                </div>
               </div>
               <div className="sliderRow">
                 <div className="sliderTop">
                   <div className="label">HUD Opacity</div>
                   <div className="val">{s.hud}%</div>
                 </div>
-                <input
-                  type="range"
-                  id="sliderHUD"
-                  min={0}
-                  max={30}
-                  value={s.hud}
-                  onChange={(e) => ui.updateSettings({ hud: Number(e.target.value) })}
-                />
+                <div className="settingsSliderWrap">
+                  <div className="settingsSliderFill" style={{ width: `${(s.hud / 30) * 100}%` }} />
+                  <input
+                    type="range"
+                    id="sliderHUD"
+                    min={0}
+                    max={30}
+                    value={s.hud}
+                    onChange={(e) => ui.updateSettings({ hud: Number(e.target.value) })}
+                    className="settingsSlider"
+                  />
+                </div>
               </div>
               <div className="sliderRow">
                 <div className="sliderTop">
                   <div className="label">Background Pulse</div>
                   <div className="val">{s.pulse}%</div>
                 </div>
-                <input
-                  type="range"
-                  id="sliderPulse"
-                  min={0}
-                  max={25}
-                  value={s.pulse}
-                  onChange={(e) => ui.updateSettings({ pulse: Number(e.target.value) })}
-                />
+                <div className="settingsSliderWrap">
+                  <div className="settingsSliderFill" style={{ width: `${(s.pulse / 25) * 100}%` }} />
+                  <input
+                    type="range"
+                    id="sliderPulse"
+                    min={0}
+                    max={25}
+                    value={s.pulse}
+                    onChange={(e) => ui.updateSettings({ pulse: Number(e.target.value) })}
+                    className="settingsSlider"
+                  />
+                </div>
               </div>
             </div>
 
@@ -170,28 +199,36 @@ export function SettingsDrawer() {
                   <div className="label">Particle Count</div>
                   <div className="val">{s.particleCount}</div>
                 </div>
-                <input
-                  type="range"
-                  id="sliderPCount"
-                  min={0}
-                  max={180}
-                  value={s.particleCount}
-                  onChange={(e) => ui.updateSettings({ particleCount: Number(e.target.value) })}
-                />
+                <div className="settingsSliderWrap">
+                  <div className="settingsSliderFill" style={{ width: `${(s.particleCount / 180) * 100}%` }} />
+                  <input
+                    type="range"
+                    id="sliderPCount"
+                    min={0}
+                    max={180}
+                    value={s.particleCount}
+                    onChange={(e) => ui.updateSettings({ particleCount: Number(e.target.value) })}
+                    className="settingsSlider"
+                  />
+                </div>
               </div>
               <div className="sliderRow">
                 <div className="sliderTop">
                   <div className="label">Particle Opacity</div>
                   <div className="val">{s.particleOpacity}%</div>
                 </div>
-                <input
-                  type="range"
-                  id="sliderPOp"
-                  min={0}
-                  max={100}
-                  value={s.particleOpacity}
-                  onChange={(e) => ui.updateSettings({ particleOpacity: Number(e.target.value) })}
-                />
+                <div className="settingsSliderWrap">
+                  <div className="settingsSliderFill" style={{ width: `${s.particleOpacity}%` }} />
+                  <input
+                    type="range"
+                    id="sliderPOp"
+                    min={0}
+                    max={100}
+                    value={s.particleOpacity}
+                    onChange={(e) => ui.updateSettings({ particleOpacity: Number(e.target.value) })}
+                    className="settingsSlider"
+                  />
+                </div>
               </div>
             </div>
 
@@ -203,17 +240,12 @@ export function SettingsDrawer() {
                 Expressions
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-                {(['neutral', 'curious', 'angry', 'surprised', 'sleepy', 'focused', 'sad', 'happy', 'suspicious', 'bored', 'excited'] as const).map((expr) => (
+                {EXPRESSIONS.map((expr) => (
                   <button
                     key={expr}
                     type="button"
-                    className="btn"
-                    style={{
-                      textTransform: 'capitalize',
-                      ...(ui.exprOverride === expr
-                        ? { borderColor: 'rgba(80,240,255,.4)', boxShadow: '0 0 12px rgba(80,240,255,.15)' }
-                        : {}),
-                    }}
+                    className={`btn settingsExprBtn ${ui.exprOverride === expr ? 'active' : ''}`}
+                    style={{ textTransform: 'capitalize' }}
                     onClick={() => {
                       ui.setEyesState('idle');
                       ui.setExprOverride(expr);

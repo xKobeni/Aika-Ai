@@ -12,7 +12,10 @@ export type Expression =
   | 'happy'
   | 'suspicious'
   | 'bored'
-  | 'excited';
+  | 'excited'
+  | 'scared'
+  | 'crying'
+  | 'dead';
 export type ThemeKey = 'void' | 'cyan' | 'red' | 'violet' | 'emerald';
 
 interface AikaUISettings {
@@ -28,6 +31,8 @@ interface AikaUISettings {
   pulse: number;
   particleCount: number;
   particleOpacity: number;
+  /** Left sidebar collapsed to icon strip */
+  sidebarCollapsed: boolean;
 }
 
 const DEFAULT_SETTINGS: AikaUISettings = {
@@ -43,6 +48,7 @@ const DEFAULT_SETTINGS: AikaUISettings = {
   pulse: 10,
   particleCount: 90,
   particleOpacity: 55,
+  sidebarCollapsed: false,
 };
 
 interface AikaUIContextValue {

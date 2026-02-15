@@ -1,3 +1,4 @@
+import { useAikaUI } from '../contexts/AikaUIContext';
 import { Sidebar } from './Sidebar';
 import { Main } from './Main';
 import type { Message } from '../types';
@@ -15,7 +16,10 @@ interface AppLayoutProps {
   onPromptChange: (v: string) => void;
   onSend: () => void;
   connectionStatus?: string;
+  greeting?: string | null;
   isLoading?: boolean;
+  isStreaming?: boolean;
+  streamingText?: string;
   chatSessions?: ChatSession[];
   activeSessionId?: string | null;
   onNewChat: () => void;
@@ -24,6 +28,9 @@ interface AppLayoutProps {
   onClear?: () => void;
   onRename?: () => void;
   onDelete?: () => void;
+  onAttachFiles?: (files: File[]) => void;
+  attachmentCount?: number;
+  activeAgentName?: string;
 }
 
 export function AppLayout({
@@ -32,7 +39,10 @@ export function AppLayout({
   onPromptChange,
   onSend,
   connectionStatus,
+  greeting,
   isLoading,
+  isStreaming,
+  streamingText,
   chatSessions = [],
   activeSessionId,
   onNewChat,
@@ -41,9 +51,15 @@ export function AppLayout({
   onClear,
   onRename,
   onDelete,
+  onAttachFiles,
+  attachmentCount = 0,
+  activeAgentName,
 }: AppLayoutProps) {
+  const ui = useAikaUI();
+  const collapsed = ui.settings.sidebarCollapsed;
+
   return (
-    <div className="app">
+    <div className={`app ${collapsed ? 'sidebar-collapsed' : ''}`}>
       <Sidebar
         connectionStatus={connectionStatus as any}
         chatSessions={chatSessions}
@@ -61,7 +77,13 @@ export function AppLayout({
         onPromptChange={onPromptChange}
         onSend={onSend}
         connectionStatus={connectionStatus}
+        greeting={greeting}
         isLoading={isLoading}
+        isStreaming={isStreaming}
+        streamingText={streamingText}
+        onAttachFiles={onAttachFiles}
+        attachmentCount={attachmentCount}
+        activeAgentName={activeAgentName}
       />
     </div>
   );

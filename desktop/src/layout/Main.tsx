@@ -8,7 +8,13 @@ interface MainProps {
   onPromptChange: (v: string) => void;
   onSend: () => void;
   connectionStatus?: string;
+  greeting?: string | null;
   isLoading?: boolean;
+  isStreaming?: boolean;
+  streamingText?: string;
+  onAttachFiles?: (files: File[]) => void;
+  attachmentCount?: number;
+  activeAgentName?: string;
 }
 
 export function Main({
@@ -17,26 +23,19 @@ export function Main({
   onPromptChange,
   onSend,
   connectionStatus,
+  greeting,
   isLoading,
+  isStreaming = false,
+  streamingText,
+  onAttachFiles,
+  attachmentCount = 0,
+  activeAgentName,
 }: MainProps) {
   const ui = useAikaUI();
-  const activeChatTitle = 'Current';
 
   const voiceOn = ui.settings.voice;
   const waitingForWakeWord =
     voiceOn && ui.settings.wakeWordMode && !ui.wakeWordHeard;
-
-  const typingLabel = isLoading
-    ? 'PROCESSING'
-    : ui.eyesState === 'thinking'
-      ? 'THINKING…'
-      : waitingForWakeWord
-        ? 'AIKA…'
-        : ui.eyesState === 'listening'
-          ? 'SCAN MODE'
-          : ui.eyesState === 'standby'
-            ? 'STANDBY'
-            : 'READY';
 
   const isNewChat = messages.length === 0;
 
@@ -45,8 +44,7 @@ export function Main({
       <section className="aiHeader">
         <HeaderBadges
           connectionStatus={connectionStatus as any}
-          typingLabel={typingLabel}
-          activeChatTitle={activeChatTitle}
+          activeAgentName={activeAgentName}
           onFocusClick={() => ui.setFocusMode(!ui.focusMode)}
           onSettingsClick={() => ui.setSettingsOpen(true)}
         />
@@ -57,8 +55,14 @@ export function Main({
         />
       </section>
 
+      {isNewChat && (
+        <p className="chatGreeting" aria-live="polite">
+          {greeting ?? 'Where should we begin?'}
+        </p>
+      )}
+
       <section className="chat">
-        <Messages messages={messages} isLoading={isLoading} />
+        <Messages messages={messages} isLoading={isLoading} isStreaming={isStreaming} streamingText={streamingText} />
         {(voiceOn || waitingForWakeWord) && (
           <div className="voiceStrip">
             {voiceOn && (
@@ -76,6 +80,8 @@ export function Main({
           onChange={onPromptChange}
           onSend={onSend}
           disabled={isLoading}
+          onAttachFiles={onAttachFiles}
+          attachmentCount={attachmentCount}
         />
       </section>
     </main>

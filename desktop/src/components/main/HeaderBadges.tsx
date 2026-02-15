@@ -3,16 +3,14 @@ import type { ConnectionStatus as ConnStatus } from '../../types';
 
 interface HeaderBadgesProps {
   connectionStatus?: ConnStatus;
-  typingLabel: string;
-  activeChatTitle: string;
+  activeAgentName?: string;
   onFocusClick: () => void;
   onSettingsClick: () => void;
 }
 
 export function HeaderBadges({
   connectionStatus = 'disconnected',
-  typingLabel,
-  activeChatTitle,
+  activeAgentName,
   onFocusClick,
   onSettingsClick,
 }: HeaderBadgesProps) {
@@ -29,21 +27,17 @@ export function HeaderBadges({
         ? 'CONNECTING…'
         : 'DISCONNECTED';
 
-  const showTypingDot = typingLabel === 'PROCESSING' || typingLabel === 'THINKING…';
-
   return (
     <div className="headerBadges">
       <div className="badgeRow">
         <div className="badge" id="connBadge">
           {connText}
         </div>
-        <div className="badge" id="typingBadge">
-          {typingLabel}
-          {showTypingDot && <span className="typingDot" />}
-        </div>
-        <div className="badge" id="activeChatBadge">
-          CHAT :: {activeChatTitle.toUpperCase().slice(0, 24) || '—'}
-        </div>
+        {activeAgentName && (
+          <div className="badge" id="agentBadge" title="Active model">
+            MODEL :: {activeAgentName.toUpperCase().slice(0, 16)}
+          </div>
+        )}
       </div>
       <div className="badgeRow">
         <button

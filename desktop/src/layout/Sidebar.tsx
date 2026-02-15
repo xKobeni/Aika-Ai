@@ -57,25 +57,27 @@ export function Sidebar({
       )
     : chatSessions;
 
-  const addSyslog = (line: string) => {
-    if (!syslogRef.current) return;
-    const div = document.createElement('div');
-    div.textContent = `${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} :: ${line}`;
-    syslogRef.current.appendChild(div);
-    while (syslogRef.current.children.length > 10) syslogRef.current.removeChild(syslogRef.current.children[1]);
-  };
+  const collapsed = ui.settings.sidebarCollapsed;
+  const toggleCollapse = () => ui.updateSettings({ sidebarCollapsed: !collapsed });
 
   return (
-    <aside className={`sidebar ${ui.sidebarOpen ? 'open' : ''}`} id="sidebar">
+    <aside className={`sidebar ${ui.sidebarOpen ? 'open' : ''} ${collapsed ? 'collapsed' : ''}`} id="sidebar">
       <div className="sidebar-inner">
         <div className="brand">
-          <div>
+          <div className="brandMain">
             <h1>Aika AI</h1>
             <div className="tag">CHAT / SESSIONS</div>
           </div>
-          <div className="hint" id="buildHint">
-            v2.1
-          </div>
+          <button
+            type="button"
+            className="sidebarCollapseBtn"
+            onClick={toggleCollapse}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            data-collapsed={collapsed ? 'true' : 'false'}
+          >
+            <span className="sidebarCollapseIcon" aria-hidden>{collapsed ? '▶' : '◀'}</span>
+          </button>
         </div>
 
         <div className="statusStrip">
@@ -162,13 +164,13 @@ export function Sidebar({
         )}
 
         <div className="sidebarTopActions">
-          <button type="button" className="btn" style={{ flex: 1 }} onClick={onNewChat}>
+          <button type="button" className="btn" style={{ flex: 1 }} onClick={onNewChat} title="New Chat">
             New Chat
           </button>
-          <button type="button" className="btn icon" title="Rename" onClick={onRename}>
+          <button type="button" className="btn icon" title="Rename" onClick={onRename} data-icon="✎">
             ✎
           </button>
-          <button type="button" className="btn icon danger" title="Delete" onClick={onDelete}>
+          <button type="button" className="btn icon danger" title="Delete" onClick={onDelete} data-icon="×">
             🗑
           </button>
         </div>
@@ -221,6 +223,10 @@ export function Sidebar({
           </div>
           <div>voice: settings → Voice Mode</div>
           <div>tip: double click eyes = focus</div>
+        </div>
+
+        <div className="hint brandHint sidebarVersionBottom" id="buildHintBottom">
+          v2.1
         </div>
       </div>
     </aside>

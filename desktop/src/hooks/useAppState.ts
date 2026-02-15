@@ -1,6 +1,8 @@
 import { useState, useCallback } from 'react';
 import type { Agent, Tool, Message, Attachment, ToolLogEntry } from '../types';
 import { nowTime, uid } from '../lib/utils';
+import { getSessions, getSessionMessages } from '../lib/api';
+import type { SessionListItem } from '../lib/api';
 
 const DEFAULT_AGENTS: Agent[] = [
   {
@@ -64,7 +66,9 @@ export function useAppState() {
   const [toolLog, setToolLog] = useState<ToolLogEntry[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionList, setSessionList] = useState<SessionListItem[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingText, setStreamingText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
 
@@ -150,9 +154,43 @@ export function useAppState() {
   const newChat = useCallback(() => {
     setMessages([]);
     setAttachments([]);
-    setSessionId(null); // Reset session for new chat
+    setSessionId(null);
+    setStreamingText('');
     setShowHero(true);
   }, []);
+
+  const loadSessions = useCallback(async () => {
+    try {
+      const list = await getSessions();
+      setSessionList(list);
+    } catch {
+      setSessionList([]);
+    }
+  }, []);
+
+  const loadSession = useCallback(async (id: string) => {
+    try {
+      const { messages: raw } = await getSessionMessages(id);
+      const agent = agents.find((a) => a.id === activeAgentId) ?? agents[0];
+      const mapped: Message[] = raw.map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        text: m.content,
+        time: m.created_at
+          ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          : nowTime(),
+        badges: m.role === 'assistant' ? [{ text: 'Local', kind: 'good' as const }] : [],
+        toolCalls: [],
+        ...(m.role === 'assistant' ? { agentName: agent.name, agentIcon: agent.icon } : {}),
+      }));
+      setMessages(mapped);
+      setSessionId(id);
+      setStreamingText('');
+      setShowHero(false);
+    } catch {
+      setMessages([]);
+      setSessionId(id);
+    }
+  }, [activeAgentId, agents]);
 
   const clearChat = useCallback(() => setMessages([]), []);
 
@@ -168,6 +206,21 @@ export function useAppState() {
     if (v === 'files') setPanelTab('files');
     setShowHero(false);
   }, []);
+
+  /** Dev: simulate thinking then typing so you can test eyes/chat without the backend. */
+  const runThinkingTypingDemo = useCallback(() => {
+    setIsLoading(true);
+    const t1 = setTimeout(() => {
+      setIsLoading(false);
+      addAssistantMessage(' ');
+      setIsStreaming(true);
+      const t2 = setTimeout(() => {
+        setIsStreaming(false);
+      }, 2500);
+      return () => clearTimeout(t2);
+    }, 2000);
+    return () => clearTimeout(t1);
+  }, [addAssistantMessage]);
 
   return {
     view,
@@ -212,11 +265,17 @@ export function useAppState() {
     navView,
     sessionId,
     setSessionId,
+    sessionList,
+    loadSessions,
+    loadSession,
     isStreaming,
     setIsStreaming,
+    streamingText,
+    setStreamingText,
     isLoading,
     setIsLoading,
     streamingMessageId,
     setStreamingMessageId,
+    runThinkingTypingDemo,
   };
 }

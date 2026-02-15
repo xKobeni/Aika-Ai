@@ -56,6 +56,24 @@ export interface GetPreferencesResponse {
   preferences: Record<string, string>;
 }
 
+export interface SessionListItem {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  preview: string;
+}
+
+export interface SessionMessageItem {
+  role: string;
+  content: string;
+  created_at: string;
+}
+
+export interface SessionMessagesResponse {
+  session_id: string;
+  messages: SessionMessageItem[];
+}
+
 /**
  * Get authentication token from localStorage or environment
  */
@@ -276,6 +294,26 @@ export async function savePreference(
  */
 export async function getPreferences(): Promise<GetPreferencesResponse> {
   const response = await authenticatedFetch('/memory/preferences', {
+    method: 'GET',
+  });
+  return response.json();
+}
+
+/**
+ * Chat sessions - list all sessions (by last activity)
+ */
+export async function getSessions(): Promise<SessionListItem[]> {
+  const response = await authenticatedFetch('/chat/sessions', {
+    method: 'GET',
+  });
+  return response.json();
+}
+
+/**
+ * Chat sessions - get messages for a session
+ */
+export async function getSessionMessages(sessionId: string): Promise<SessionMessagesResponse> {
+  const response = await authenticatedFetch(`/chat/sessions/${encodeURIComponent(sessionId)}/messages`, {
     method: 'GET',
   });
   return response.json();

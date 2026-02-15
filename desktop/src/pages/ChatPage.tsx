@@ -2,9 +2,9 @@ import { useEffect } from 'react';
 import { BgDrift, StatePulse, GlitchSweep, Particles } from '../components/background';
 import { AppLayout } from '../layout';
 import { SettingsDrawer, Terminal } from '../components/overlays';
-import { ThemeApplicer } from '../components/ThemeApplicer';
 import { useAikaUI } from '../contexts/AikaUIContext';
 import { useWakeWord } from '../hooks/useWakeWord';
+import type { SessionListItem } from '../lib/api';
 
 interface ChatPageProps {
   messages: Array<{ role: string; text: string; time: string }>;
@@ -12,11 +12,19 @@ interface ChatPageProps {
   onPromptChange: (v: string) => void;
   onSend: () => void;
   connectionStatus?: string;
+  greeting?: string | null;
   isLoading?: boolean;
   isStreaming?: boolean;
+  streamingText?: string;
+  sessionList?: SessionListItem[];
+  sessionId?: string | null;
+  onSelectSession?: (id: string) => void;
   onNewChat: () => void;
   onExport?: () => void;
   onClear?: () => void;
+  onAttachFiles?: (files: File[]) => void;
+  attachmentCount?: number;
+  activeAgentName?: string;
 }
 
 export function ChatPage({
@@ -25,11 +33,19 @@ export function ChatPage({
   onPromptChange,
   onSend,
   connectionStatus,
+  greeting,
   isLoading,
   isStreaming,
+  streamingText,
+  sessionList = [],
+  sessionId,
+  onSelectSession,
   onNewChat,
   onExport,
   onClear,
+  onAttachFiles,
+  attachmentCount = 0,
+  activeAgentName,
 }: ChatPageProps) {
   const ui = useAikaUI();
 
@@ -70,7 +86,14 @@ export function ChatPage({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [ui]);
 
-  const chatSessions = [{ id: 'current', title: 'Current Chat', preview: messages[messages.length - 1]?.text?.slice(0, 60) || 'No messages yet.', updatedAt: new Date().toLocaleDateString([], { month: 'short', day: '2-digit' }) }];
+  const chatSessions = sessionList.map((s) => ({
+    id: s.id,
+    title: s.preview.slice(0, 50) || 'New chat',
+    preview: s.preview,
+    updatedAt: s.updated_at
+      ? new Date(s.updated_at).toLocaleDateString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+      : new Date(s.created_at).toLocaleDateString([], { month: 'short', day: '2-digit' }),
+  }));
 
   return (
     <>
@@ -82,8 +105,6 @@ export function ChatPage({
         opacity={ui.settings.particleOpacity}
         eyesState={ui.eyesState}
       />
-      <ThemeApplicer />
-
       <SettingsDrawer />
       <Terminal />
 
@@ -111,14 +132,21 @@ export function ChatPage({
         onPromptChange={onPromptChange}
         onSend={onSend}
         connectionStatus={connectionStatus}
+        greeting={greeting}
         isLoading={isLoading}
+        isStreaming={isStreaming}
+        streamingText={streamingText}
         chatSessions={chatSessions}
-        activeSessionId="current"
+        activeSessionId={sessionId}
+        onSelectSession={onSelectSession}
         onNewChat={onNewChat}
         onExport={onExport}
         onClear={onClear}
         onRename={() => {}}
         onDelete={() => {}}
+        onAttachFiles={onAttachFiles}
+        attachmentCount={attachmentCount}
+        activeAgentName={activeAgentName}
       />
     </>
   );

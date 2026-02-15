@@ -7,6 +7,22 @@ import { chatMessage, chatMessageStream, analyzeImage, type ChatRequest, type Vi
 import type { Message, ToolLogEntry } from '../types';
 import { nowTime } from './utils';
 
+/** Throttle streaming updates to once per animation frame for smooth typing. */
+function createSmoothStreamingUpdater(onUpdate: (text: string) => void) {
+  let rafId: number | null = null;
+  let latestText = '';
+  const flush = () => {
+    rafId = null;
+    onUpdate(latestText);
+  };
+  return (text: string) => {
+    latestText = text;
+    if (rafId === null) {
+      rafId = requestAnimationFrame(flush);
+    }
+  };
+}
+
 export interface ChatApiParams {
   message: string;
   sessionId: string | null;
@@ -137,13 +153,15 @@ async function handleStreamingResponse(
   let learnedFacts: string[] = [];
   let messageCreated = false;
 
+  const smoothUpdate = onStreamingUpdate
+    ? createSmoothStreamingUpdater(onStreamingUpdate)
+    : () => {};
+
   try {
     for await (const event of chatMessageStream(request)) {
       if (event.type === 'chunk') {
-        // Accumulate streaming text
         accumulatedText += event.text || '';
-        // Update message in real-time
-        onStreamingUpdate?.(accumulatedText);
+        smoothUpdate(accumulatedText);
       } else if (event.type === 'done') {
         // Final response
         if (event.session_id) {

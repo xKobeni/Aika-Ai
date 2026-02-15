@@ -1,4 +1,5 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useAikaUI } from '../../contexts/AikaUIContext';
 import type { EyesState as EyesStateType } from '../../contexts/AikaUIContext';
 import type { Expression } from '../../contexts/AikaUIContext';
@@ -17,8 +18,11 @@ const EXPRESSIONS: Expression[] = [
   'surprised',
   'suspicious',
   'angry',
+  'scared',
+  'crying',
+  'dead',
 ];
-const EXPR_WEIGHTS = [22, 18, 14, 12, 10, 8, 6, 5, 3, 2, 1];
+const EXPR_WEIGHTS = [22, 18, 14, 12, 10, 8, 6, 5, 3, 2, 1, 1, 1, 1];
 
 function pickRandomExpression(): Expression {
   const total = EXPR_WEIGHTS.reduce((a, b) => a + b, 0);
@@ -183,6 +187,42 @@ function autonomousGazeParams(expr: Expression): {
         yBias: -0.06,
         speedVary: 0.18,
       };
+    case 'scared':
+      return {
+        range: 1.0,
+        moveSpeed: 9.5,
+        intervalMin: 0.15,
+        intervalMax: 0.6,
+        centerChance: 0.02,
+        idleDrift: 0.12,
+        glanceChance: 0.45,
+        yBias: 0.05,
+        speedVary: 0.25,
+      };
+    case 'crying':
+      return {
+        range: 0.6,
+        moveSpeed: 5,
+        intervalMin: 3.2,
+        intervalMax: 5.5,
+        centerChance: 0.45,
+        idleDrift: 0.02,
+        glanceChance: 0.04,
+        yBias: 0.22,
+        speedVary: 0.1,
+      };
+    case 'dead':
+      return {
+        range: 0,
+        moveSpeed: 0,
+        intervalMin: 999,
+        intervalMax: 999,
+        centerChance: 1,
+        idleDrift: 0,
+        glanceChance: 0,
+        yBias: 0,
+        speedVary: 0,
+      };
     default:
       return {
         range: 0.95,
@@ -211,6 +251,9 @@ function lidCutoffAtX(expr: Expression, xNorm: number, side: 'L' | 'R'): number 
     suspicious: 0.8,
     bored: 0.5,
     excited: 1.1,
+    scared: 0.66,
+    crying: 0.5,
+    dead: 0.2,
   };
   let base = baseOpen[expr] ?? 0.96;
   let tilt = 0;
@@ -218,13 +261,17 @@ function lidCutoffAtX(expr: Expression, xNorm: number, side: 'L' | 'R'): number 
     const dir = side === 'L' ? 1 : -1;
     tilt = 0.22 * dir * xNorm;
   }
-  if (expr === 'sad') {
+  if (expr === 'sad' || expr === 'crying') {
     tilt = -0.18 * (1 - Math.abs(xNorm));
+  }
+  if (expr === 'crying') {
+    tilt -= 0.06 * (1 - Math.abs(xNorm));
   }
   let centerLift = 0;
   if (expr === 'curious') centerLift = 0.08 * (1 - Math.abs(xNorm));
   if (expr === 'happy') centerLift = -0.06 * (1 - Math.abs(xNorm));
   if (expr === 'excited') centerLift = 0.1 * (1 - Math.abs(xNorm));
+  if (expr === 'scared') centerLift = 0.06 * (1 - Math.abs(xNorm));
   return clamp(base + tilt + centerLift, 0.18, 1.2);
 }
 
@@ -256,11 +303,12 @@ function drawLidEdge(
   phase: number,
   tint: { r: number; g: number; b: number }
 ) {
-  if (expr !== 'angry' && expr !== 'sleepy' && expr !== 'bored') return;
+  if (expr !== 'angry' && expr !== 'sleepy' && expr !== 'bored' && expr !== 'dead') return;
   const R = 12;
   const cx = W / 2;
   const cy = H / 2;
-  const edgeA = expr === 'angry' ? 0.12 : expr === 'bored' ? 0.08 : 0.1;
+  const edgeA =
+    expr === 'angry' ? 0.12 : expr === 'bored' ? 0.08 : expr === 'dead' ? 0.09 : 0.1;
   for (let x = 0; x < W; x++) {
     const xNorm = (x + 0.5 - cx) / R;
     const cutoff = lidCutoffAtX(expr, clamp(xNorm, -1, 1), side);
@@ -270,8 +318,40 @@ function drawLidEdge(
     const dy = yPix + 0.5 - cy;
     const d = Math.sqrt(dx * dx + dy * dy);
     if (d <= R + 0.5) {
-      const pulse = 0.85 + 0.15 * Math.sin(phase * 1.2);
+      const pulse =
+        expr === 'dead' ? 1 : 0.85 + 0.15 * Math.sin(phase * 1.2);
       g.fillStyle = `rgba(${tint.r | 0},${tint.g | 0},${tint.b | 0},${(edgeA * pulse).toFixed(3)})`;
+      g.fillRect(x, yPix, 1, 1);
+    }
+  }
+}
+
+function drawCryingBottomEdge(
+  g: CanvasRenderingContext2D,
+  W: number,
+  H: number,
+  expr: Expression,
+  side: 'L' | 'R',
+  phase: number,
+  tint: { r: number; g: number; b: number },
+  lidOpen: number
+) {
+  if (expr !== 'crying') return;
+  const R = 12;
+  const cx = W / 2;
+  const cy = H / 2;
+  const edgeA = 0.11 * (0.9 + 0.1 * Math.sin(phase * 0.8));
+  for (let x = 0; x < W; x++) {
+    const xNorm = clamp((x + 0.5 - cx) / R, -1, 1);
+    const cutoff = lidCutoffAtX(expr, xNorm, side);
+    const cutoffWithBlink = cutoff * (0.18 + 0.82 * lidOpen);
+    const yBottom = cy + clamp(cutoffWithBlink, 0.1, 1.2) * R;
+    const yPix = Math.round(yBottom);
+    const dx = x + 0.5 - cx;
+    const dy = yPix + 0.5 - cy;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d <= R + 0.5 && yPix >= 0 && yPix < H) {
+      g.fillStyle = `rgba(${tint.r | 0},${tint.g | 0},${tint.b | 0},${edgeA.toFixed(3)})`;
       g.fillRect(x, yPix, 1, 1);
     }
   }
@@ -290,6 +370,10 @@ export function Eyes({ state, cyanAccents = true, onBlink, onFocusToggle }: Eyes
   const ui = useAikaUI();
   const { exprOverride, blinkTrigger, setBlinkTrigger, setEyesState, setExprOverride, setFocusMode, settings, lookAt, triggerGlitch } = ui;
   const eyesFollowCursor = settings.eyesFollowCursor ?? true;
+  const [brokenScreenUntil, setBrokenScreenUntil] = useState(0);
+  const brokenScreenUntilRef = useRef(0);
+  const brokenScreenTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  brokenScreenUntilRef.current = brokenScreenUntil;
   const leftRef = useRef<HTMLCanvasElement>(null);
   const rightRef = useRef<HTMLCanvasElement>(null);
   const tRef = useRef(0);
@@ -371,14 +455,18 @@ export function Eyes({ state, cyanAccents = true, onBlink, onFocusToggle }: Eyes
           if (cyan) tint = { r: 80, g: 240, b: 255 };
           break;
         case 'thinking':
-          glow = 0.52 + 0.08 * Math.sin(phase * 0.6);
-          shimmer = 0.6 + 0.4 * Math.sin(phase * 0.9);
-          pupilR = 2.85;
+          // Distinct "processing" effect: slow scan shimmer, focused look, subtle pulse
+          glow = 0.5 + 0.06 * Math.sin(phase * 0.45);
+          shimmer = 0.72 + 0.28 * Math.sin(phase * 0.7);
+          pupilR = 2.8;
           break;
         case 'speaking':
-          glow = 0.58 + 0.22 * Math.sin(phase * 2.6);
-          vib = 0.85;
-          pupilR = 3.2 + 0.2 * Math.sin(phase * 2.2 + (side === 'L' ? 0 : 0.35));
+          // Distinct "typing/responding" effect: rhythmic pulse (typing cadence), warmer glow, no thinking jitter
+          const typingPulse = Math.sin(phase * 3.8) * 0.5 + 0.5;
+          glow = 0.54 + 0.18 * typingPulse;
+          pupilR = 3.15 + 0.15 * Math.sin(phase * 2.4 + (side === 'L' ? 0 : 0.4));
+          vib = 0.35;
+          if (cyan) tint = { r: 120, g: 245, b: 255 };
           break;
         case 'error':
           glow = 0.72;
@@ -392,6 +480,11 @@ export function Eyes({ state, cyanAccents = true, onBlink, onFocusToggle }: Eyes
           break;
       }
 
+      if (expr === 'dead') {
+        glow *= 0.55;
+        tint = { r: 200, g: 208, b: 218 };
+      }
+
       const err = errorFlashRef.current;
 
       let jx = 0;
@@ -400,13 +493,19 @@ export function Eyes({ state, cyanAccents = true, onBlink, onFocusToggle }: Eyes
         jx = (Math.random() - 0.5) * vib;
         jy = (Math.random() - 0.5) * vib;
       }
+      // Thinking: soft processing jitter (unfocused "computing" look)
       if (eyesState === 'thinking') {
-        jx += (Math.random() - 0.5) * 0.35;
-        jy += (Math.random() - 0.5) * 0.35;
+        jx += (Math.random() - 0.5) * 0.4;
+        jy += (Math.random() - 0.5) * 0.4;
+        if (Math.random() < 0.022) {
+          jx += (Math.random() - 0.5) * 2.2;
+          jy += (Math.random() - 0.5) * 2.2;
+        }
       }
-      if ((eyesState === 'thinking' || eyesState === 'speaking') && Math.random() < 0.028) {
-        jx += (Math.random() - 0.5) * 2.5;
-        jy += (Math.random() - 0.5) * 2.5;
+      // Speaking: only very subtle micro-movement (typing rhythm), no big glitches
+      if (eyesState === 'speaking' && Math.random() < 0.012) {
+        jx += (Math.random() - 0.5) * 1.2;
+        jy += (Math.random() - 0.5) * 1.2;
       }
       const hurt = hurtFlashRef.current;
       if (hurt > 0.3) {
@@ -476,7 +575,8 @@ export function Eyes({ state, cyanAccents = true, onBlink, onFocusToggle }: Eyes
         }
       }
 
-      const pupilHide = expr === 'sleepy' ? 0.7 : 0.85;
+      const pupilHide =
+        expr === 'sleepy' || expr === 'crying' ? 0.7 : expr === 'dead' ? 0 : 0.85;
       const pupilVisible = blink < pupilHide;
 
       if (pupilVisible) {
@@ -516,7 +616,8 @@ export function Eyes({ state, cyanAccents = true, onBlink, onFocusToggle }: Eyes
         if (blink < 0.75) {
           const hx = Math.round(px - 1.6);
           const hy = Math.round(py - 1.8);
-          const highlightAlpha = eyesState === 'thinking' ? 0.58 : 0.46;
+          const highlightAlpha =
+            eyesState === 'thinking' ? 0.62 : eyesState === 'speaking' ? 0.52 : 0.46;
           g.fillStyle = `rgba(255,255,255,${highlightAlpha})`;
           g.fillRect(hx, hy, 1, 1);
           g.fillRect(hx + 1, hy, 1, 1);
@@ -525,6 +626,7 @@ export function Eyes({ state, cyanAccents = true, onBlink, onFocusToggle }: Eyes
 
       drawEyebrow(g, expr, side, tint, 0.18);
       drawLidEdge(g, W, H, expr, side, phase, tint);
+      drawCryingBottomEdge(g, W, H, expr, side, phase, tint, lidOpen);
 
       if (eyesState === 'listening' && blink < 0.9) {
         const scanT = scanPhase % 1;
@@ -543,8 +645,9 @@ export function Eyes({ state, cyanAccents = true, onBlink, onFocusToggle }: Eyes
       const t = performance.now();
       const expr = computeExpression(state, effectiveExprOverrideRef.current, mouseNearRef.current);
 
-      if (expr === 'sleepy') blinkStyleRef.current = 'slow';
-      else if (expr === 'surprised') blinkStyleRef.current = 'double';
+      if (expr === 'sleepy' || expr === 'crying') blinkStyleRef.current = 'slow';
+      else if (expr === 'surprised' || expr === 'scared') blinkStyleRef.current = 'double';
+      else if (expr === 'dead') blinkStyleRef.current = 'slow';
       else blinkStyleRef.current = 'normal';
 
       if (t >= nextBlinkAtRef.current && blinkRef.current <= 0.02) {
@@ -609,6 +712,9 @@ export function Eyes({ state, cyanAccents = true, onBlink, onFocusToggle }: Eyes
         (randomExprRef.current && now < randomExprRef.current.expiresAt
           ? randomExprRef.current.expr
           : null);
+      if (brokenScreenUntilRef.current > 0 && Date.now() < brokenScreenUntilRef.current) {
+        effectiveExprOverrideRef.current = 'dead';
+      }
 
       const wrap = leftRef.current?.parentElement?.getBoundingClientRect();
       const lookAtActive = lookAt && now < lookAt.expiresAt;
@@ -734,18 +840,80 @@ export function Eyes({ state, cyanAccents = true, onBlink, onFocusToggle }: Eyes
     };
   }, [state, cyanAccents, exprOverride, blinkTrigger, setBlinkTrigger, eyesFollowCursor, lookAt, triggerGlitch]);
 
+  useEffect(() => () => {
+    if (brokenScreenTimeoutRef.current) clearTimeout(brokenScreenTimeoutRef.current);
+  }, []);
+
   const triggerHurt = () => {
     hurtFlashRef.current = 0.95;
     triggerGlitch();
   };
   const handleWrapClick = () => {
     const now = performance.now();
-    if (now - lastEyeClickAtRef.current > 2000) eyeClickCountRef.current = 0;
+    const windowMs = eyeClickCountRef.current >= 5 ? 4000 : 2000;
+    if (now - lastEyeClickAtRef.current > windowMs) eyeClickCountRef.current = 0;
     lastEyeClickAtRef.current = now;
     eyeClickCountRef.current += 1;
+    const count = eyeClickCountRef.current;
 
-    if (eyeClickCountRef.current >= 5) {
+    // 15+ clicks: broken screen – system unclickable for 10–15 sec, eyes show dead during recovery
+    if (count >= 15) {
       eyeClickCountRef.current = 0;
+      const durationMs = 10000 + Math.random() * 5000;
+      setBlinkTrigger({ strength: 1.5 });
+      triggerGlitch();
+      setTimeout(triggerGlitch, 100);
+      setTimeout(triggerGlitch, 250);
+      document.body.classList.add('eyesShakeCrazy');
+      setTimeout(() => document.body.classList.remove('eyesShakeCrazy'), 1400);
+      setBrokenScreenUntil(Date.now() + durationMs);
+      setEyesState('idle');
+      setExprOverride('dead');
+      if (brokenScreenTimeoutRef.current) clearTimeout(brokenScreenTimeoutRef.current);
+      brokenScreenTimeoutRef.current = setTimeout(() => {
+        brokenScreenTimeoutRef.current = null;
+        setBrokenScreenUntil(0);
+        setEyesState('idle');
+        setExprOverride(null);
+      }, durationMs);
+      return;
+    }
+
+    // 10–14 clicks: easter egg – crazy shake, multiple glitches (don’t reset so 15+ can trigger)
+    if (count >= 10) {
+      setEyesState('error');
+      setExprOverride('angry');
+      setBlinkTrigger({ strength: 1.4 });
+      triggerGlitch();
+      setTimeout(triggerGlitch, 120);
+      setTimeout(triggerGlitch, 280);
+      document.body.classList.add('eyesShakeCrazy');
+      setTimeout(() => document.body.classList.remove('eyesShakeCrazy'), 1400);
+      setTimeout(() => {
+        setEyesState('idle');
+        setExprOverride(null);
+      }, 4000);
+      return;
+    }
+
+    // 8+ clicks: very angry – stronger shake, double glitch
+    if (count >= 8) {
+      setEyesState('error');
+      setExprOverride('angry');
+      setBlinkTrigger({ strength: 1.3 });
+      triggerGlitch();
+      setTimeout(triggerGlitch, 80);
+      document.body.classList.add('eyesShakeRage');
+      setTimeout(() => document.body.classList.remove('eyesShakeRage'), 1200);
+      setTimeout(() => {
+        setEyesState('idle');
+        setExprOverride(null);
+      }, 3000);
+      return;
+    }
+
+    // 5 clicks: angry (original behavior)
+    if (count === 5) {
       setEyesState('error');
       setExprOverride('angry');
       setBlinkTrigger({ strength: 1.2 });
@@ -769,38 +937,51 @@ export function Eyes({ state, cyanAccents = true, onBlink, onFocusToggle }: Eyes
     triggerBlinkRef(blinkVelRef, nextBlinkAtRef, 1.25);
   };
 
+  const brokenScreenActive = brokenScreenUntil > 0;
+
   return (
-    <div
-      className="eyesWrap"
-      id="eyesWrap"
-      role="button"
-      tabIndex={0}
-      onClick={handleWrapClick}
-      onDoubleClick={handleWrapDoubleClick}
-      onPointerDown={(e) => {
-        if (e.target === e.currentTarget) return;
-        triggerHurt();
-      }}
-    >
-      <div className="eyesGlow" />
-      <div className="hud" />
-      <div className="crtMask" />
-      <canvas
-        ref={leftRef}
-        className="eye"
-        id="eyeL"
-        width={32}
-        height={32}
-        onPointerDown={handleEyePointerDown}
-      />
-      <canvas
-        ref={rightRef}
-        className="eye"
-        id="eyeR"
-        width={32}
-        height={32}
-        onPointerDown={handleEyePointerDown}
-      />
-    </div>
+    <>
+      <div
+        className="eyesWrap"
+        id="eyesWrap"
+        role="button"
+        tabIndex={0}
+        onClick={handleWrapClick}
+        onDoubleClick={handleWrapDoubleClick}
+        onPointerDown={(e) => {
+          if (e.target === e.currentTarget) return;
+          triggerHurt();
+        }}
+      >
+        <div className="eyesGlow" />
+        <div className="hud" />
+        <div className="crtMask" />
+        <canvas
+          ref={leftRef}
+          className="eye"
+          id="eyeL"
+          width={32}
+          height={32}
+          onPointerDown={handleEyePointerDown}
+        />
+        <canvas
+          ref={rightRef}
+          className="eye"
+          id="eyeR"
+          width={32}
+          height={32}
+          onPointerDown={handleEyePointerDown}
+        />
+      </div>
+      {brokenScreenActive &&
+        createPortal(
+          <div className="brokenScreenOverlay" aria-hidden="true">
+            <div className="brokenScreenCracks" />
+            <div className="brokenScreenVignette" />
+            <div className="brokenScreenMessage">System recovering...</div>
+          </div>,
+          document.body
+        )}
+    </>
   );
 }
